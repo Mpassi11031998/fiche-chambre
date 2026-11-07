@@ -21,9 +21,15 @@ fichier = st.file_uploader("Fiche Excel brute (.xlsx)", type=["xlsx"])
 
 # ---------------- Lecture automatique de la fiche papier ----------------
 with st.expander("Lecture automatique de la fiche papier (facultatif)", expanded=fichier is not None):
-    cle = st.secrets.get("ANTHROPIC_API_KEY", "") if hasattr(st, "secrets") else ""
+    moteur = st.radio("Moteur de lecture", ["Gemini (gratuit, Google)", "Claude (payant, Anthropic)"], horizontal=True)
+    fournisseur = "gemini" if moteur.startswith("Gemini") else "claude"
+    nom_secret = "GEMINI_API_KEY" if fournisseur == "gemini" else "ANTHROPIC_API_KEY"
+    try:
+        cle = st.secrets.get(nom_secret, "")
+    except Exception:
+        cle = ""
     if not cle:
-        cle = st.text_input("Clé API Anthropic (non enregistrée)", type="password")
+        cle = st.text_input(f"Clé API {moteur.split(' ')[0]} (non enregistrée)", type="password")
     photo = None
     envoi = st.file_uploader("Photo de la fiche papier (JPEG/PNG)", type=["jpg", "jpeg", "png"], key="photo")
     if envoi:
@@ -41,7 +47,7 @@ with st.expander("Lecture automatique de la fiche papier (facultatif)", expanded
     if st.button("Lire la fiche papier", disabled=not (photo and cle)):
         with st.spinner("Lecture en cours…"):
             try:
-                res = lire_fiche(photo, cle)
+                res = lire_fiche(photo, cle, fournisseur)
                 for m in "ABCD":
                     d = res.get("masques", {}).get(m, {}) or {}
                     f = d.get("fourreaux", []) or []

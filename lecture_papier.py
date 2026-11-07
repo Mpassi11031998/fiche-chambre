@@ -1,7 +1,8 @@
 """Lecture de la fiche papier par un modèle de vision (API Claude) + extraction des images d'un Excel."""
 import base64, io, json, zipfile
 
-MODELE = "claude-sonnet-5-5"   # modèle utilisé pour lire la photo
+MODELE = "claude-sonnet-5-5"        # modèle Claude (payant)
+MODELE_GEMINI = "gemini-2.5-flash"   # modèle Gemini (niveau gratuit, vérifier dans Google AI Studio)
 
 PROMPT = """Tu lis la photo d'une fiche papier de chantier ferroviaire (« fiche de chambre »).
 Elle contient un cadre par masque (A, B, C, D). Dans chaque masque, l'opérateur a dessiné des CERCLES
@@ -47,11 +48,31 @@ def extraire_json(texte):
         raise ValueError("Réponse sans JSON exploitable")
     return json.loads(texte[d:f + 1])
 
-def lire_fiche(image_bytes, api_key):
-    import anthropic
+def lire_fiche_gemini(image_bytes, api_key, mt):
+    import urllib.request, urllib.error
+    corps = {"contents": [{"parts": [
+                {"inline_data": {"mime_type": mt, "data": base64.b64encode(image_bytes).decode()}},
+                {"text": PROMPT}]}],
+             "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{MODELE_GEMINI}:generateContent",
+        data=json.dumps(corps).encode(), method="POST",
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            rep = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Gemini a refusé la requête (code {e.code}) : {e.read().decode()[:300]}")
+    parts = rep["candidates"][0]["content"]["parts"]
+    return extraire_json("".join(p.get("text", "") for p in parts))
+
+def lire_fiche(image_bytes, api_key, fournisseur="gemini"):
     mt = type_image(image_bytes)
     if not mt:
         raise ValueError("Format d'image non reconnu (JPEG, PNG ou WEBP attendus)")
+    if fournisseur == "gemini":
+        return lire_fiche_gemini(image_bytes, api_key, mt)
+    import anthropic
     client = anthropic.Anthropic(api_key=api_key)
     rep = client.messages.create(
         model=MODELE, max_tokens=2500,
